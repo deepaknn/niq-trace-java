@@ -151,40 +151,108 @@ private static <T> String serializeGrpcMessage(T message) {
 
 ---
 
-## 📋 Pending Components
+### 5. Apache HttpClient 4.x Implementation
+**Status:** Fully Implemented ✅
 
-### High Priority (Simple to Implement)
+**Files Modified:**
+- `dd-java-agent/instrumentation/apache-httpclient/apache-httpclient-4.0/src/main/java/datadog/trace/instrumentation/apachehttpclient/ApacheHttpClientDecorator.java`
 
-#### 1. gRPC Client Implementation
-**Estimated Effort:** 1-2 hours
+**Capabilities:**
+- ✅ Captures HTTP request bodies (only repeatable entities)
+- ✅ Captures HTTP response bodies using EntityUtils
+- ✅ Respects configuration settings
+- ✅ Graceful error handling (doesn't fail requests)
+- ✅ Skips non-repeatable request entities to avoid stream consumption
 
-**Approach:**
-- Similar to server implementation
-- Capture response messages in `ClientCall.Listener.onMessage()`
-- Use same `serializeGrpcMessage()` helper
-- Tag with `grpc.response.body`
+**Span Tags:**
+- `http.request.body` - Request payload (truncated to max size)
+- `http.response.body` - Response payload (truncated to max size)
 
-**Files to Modify:**
-- `dd-java-agent/instrumentation/grpc-1.5/src/main/java/datadog/trace/instrumentation/grpc/client/*`
+**Implementation Notes:**
+- Only captures request bodies from repeatable entities (e.g., ByteArrayEntity, StringEntity)
+- Non-repeatable entities (e.g., InputStreamEntity) are skipped to avoid consuming the stream
+- Response bodies are captured using EntityUtils.toByteArray()
+
+**Commit:** `4c506fda`
 
 ---
 
-#### 2. Apache HttpClient 4.x/5.x
-**Estimated Effort:** 2-3 hours
+### 6. Apache HttpClient 5.x Implementation
+**Status:** Fully Implemented ✅
 
-**Approach:**
-- Capture request body from `HttpEntity` (if repeatable)
-- Capture response body from `HttpEntity`
-- Use InputStream wrapper or direct buffer copy
-- Tag with `http.request.body` and `http.response.body`
-
-**Files to Modify:**
-- `dd-java-agent/instrumentation/apache-httpclient/apache-httpclient-4.0/src/main/java/datadog/trace/instrumentation/apachehttpclient/ApacheHttpClientDecorator.java`
+**Files Modified:**
 - `dd-java-agent/instrumentation/apache-httpclient/apache-httpclient-5.0/src/main/java/datadog/trace/instrumentation/apachehttpclient5/ApacheHttpClientDecorator.java`
 
+**Capabilities:**
+- ✅ Captures HTTP request bodies (only repeatable entities)
+- ✅ Captures HTTP response bodies using EntityUtils
+- ✅ Respects configuration settings
+- ✅ Graceful error handling (doesn't fail requests)
+- ✅ Uses ClassicHttpRequest/ClassicHttpResponse APIs
+
+**Span Tags:**
+- `http.request.body` - Request payload (truncated to max size)
+- `http.response.body` - Response payload (truncated to max size)
+
+**Implementation Notes:**
+- Uses Apache HttpClient 5.x API (org.apache.hc.core5.http package)
+- Same pattern as 4.x but with updated type system
+- Handles both repeatable and non-repeatable entities appropriately
+
+**Commit:** `4c506fda`
+
+---
+
+### 7. OkHttp 2.2 Client Implementation
+**Status:** Fully Implemented ✅
+
+**Files Modified:**
+- `dd-java-agent/instrumentation/okhttp/okhttp-2.2/src/main/java/datadog/trace/instrumentation/okhttp2/TracingInterceptor.java`
+
+**Capabilities:**
+- ✅ Captures HTTP request body before sending
+- ✅ Captures HTTP response body after receiving
+- ✅ Uses OkHttp's Buffer.clone() to avoid consuming response
+- ✅ Respects configuration settings
+- ✅ Graceful error handling (doesn't fail requests)
+
+**Span Tags:**
+- `http.request.body` - Request payload (truncated to max size)
+- `http.response.body` - Response payload (truncated to max size)
+
+**Implementation Notes:**
+- Mirrors OkHttp 3.0 implementation
+- Uses com.squareup.okhttp package (OkHttp 2.x API)
+- Same Buffer.clone() pattern to avoid consuming response bodies
+
+**Commit:** `e572d098`
+
+---
+
+## 📋 Pending Components
+
+### High Priority
+
+#### 1. gRPC Client Implementation
+**Status:** Needs Deeper Investigation
+**Estimated Effort:** 4-6 hours
+
 **Challenge:**
-- Request bodies may not be repeatable (need to check `entity.isRepeatable()`)
-- May need to wrap the entity to make it repeatable
+- gRPC client instrumentation uses internal stream classes
+- No easy access to typed response messages like server-side
+- Requires instrumenting lower-level stream handling
+- May need to add new advice points or use different approach
+
+**Approach (To Be Determined):**
+- Option 1: Instrument internal stream deserializers
+- Option 2: Wrap ClientCall.Listener at a higher level
+- Option 3: Use custom interceptors (requires app code changes - not preferred)
+
+**Recommended Next Steps:**
+- Deep dive into gRPC client internals
+- Prototype different approaches
+- Assess performance impact
+- May require consultation with gRPC instrumentation experts
 
 ---
 
@@ -414,4 +482,10 @@ Trace → Span → Meta Tags
 ---
 
 **Last Updated:** 2025-11-15
-**Implementation Progress:** 40% Complete (4/10 major components)
+**Implementation Progress:** 70% Complete (7/10 major components)
+
+**New in this update:**
+- ✅ Added Apache HttpClient 4.x payload capture
+- ✅ Added Apache HttpClient 5.x payload capture
+- ✅ Added OkHttp 2.2 payload capture
+- All HTTP client implementations now complete
