@@ -6,6 +6,7 @@ import static datadog.trace.bootstrap.instrumentation.decorator.HttpServerDecora
 import datadog.appsec.api.blocking.BlockingContentType;
 import datadog.context.Context;
 import datadog.context.ContextScope;
+import datadog.trace.api.Config;
 import datadog.trace.api.gateway.BlockResponseFunction;
 import datadog.trace.api.gateway.Flow;
 import datadog.trace.api.gateway.RequestContext;
@@ -16,10 +17,13 @@ import datadog.trace.bootstrap.instrumentation.api.AgentSpan;
 import datadog.trace.bootstrap.instrumentation.api.URIDataAdapter;
 import datadog.trace.bootstrap.instrumentation.api.UTF8BytesString;
 import datadog.trace.bootstrap.instrumentation.decorator.HttpServerDecorator;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import org.glassfish.grizzly.Buffer;
 import org.glassfish.grizzly.filterchain.FilterChainContext;
 import org.glassfish.grizzly.filterchain.NextAction;
 import org.glassfish.grizzly.http.HttpCodecFilter;
+import org.glassfish.grizzly.http.HttpContent;
 import org.glassfish.grizzly.http.HttpHeader;
 import org.glassfish.grizzly.http.HttpRequestPacket;
 import org.glassfish.grizzly.http.HttpResponsePacket;
@@ -165,6 +169,49 @@ public class GrizzlyDecorator
   protected BlockResponseFunction createBlockResponseFunction(
       HttpRequestPacket httpRequestPacket, HttpRequestPacket httpRequestPacket2) {
     return new GrizzlyHttpBlockResponseFunction(httpRequestPacket.getHeader("Accept"));
+  }
+
+  @Override
+  public AgentSpan onRequest(
+      final AgentSpan span,
+      final HttpRequestPacket request,
+      final HttpRequestPacket connection) {
+    super.onRequest(span, request, connection);
+
+    // PAYLOAD CAPTURE: Request Body
+    if (Config.get().isNiqTracerPayloadCaptureEnabled() && request != null) {
+      captureRequestPayload(span, request);
+    }
+
+    return span;
+  }
+
+  private void captureRequestPayload(AgentSpan span, HttpRequestPacket request) {
+    try {
+      // For filter chain level, we need to check if there's HTTP content
+      if (request instanceof HttpContent) {
+        HttpContent httpContent = (HttpContent) request;
+        Buffer content = httpContent.getContent();
+
+        if (content != null && content.hasRemaining()) {
+          int maxSize = Config.get().getNiqTracerMaxPayloadSize();
+          int contentSize = content.remaining();
+          int bytesToRead = Math.min(contentSize, maxSize);
+
+          byte[] buffer = new byte[bytesToRead];
+          int position = content.position();
+
+          content.get(buffer);
+          String payload = new String(buffer, StandardCharsets.UTF_8);
+          span.setTag("http.request.body", payload);
+
+          // Reset position so application can still read the content
+          content.position(position);
+        }
+      }
+    } catch (Exception e) {
+      // Silently ignore - don't fail request due to payload capture
+    }
   }
 
   public static class GrizzlyHttpBlockResponseFunction implements BlockResponseFunction {

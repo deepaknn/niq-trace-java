@@ -1,6 +1,7 @@
 package datadog.trace.instrumentation.grizzly;
 
 import datadog.appsec.api.blocking.BlockingContentType;
+import datadog.trace.api.Config;
 import datadog.trace.api.gateway.BlockResponseFunction;
 import datadog.trace.api.internal.TraceSegment;
 import datadog.trace.bootstrap.instrumentation.api.AgentPropagation;
@@ -9,9 +10,13 @@ import datadog.trace.bootstrap.instrumentation.api.AgentTracer;
 import datadog.trace.bootstrap.instrumentation.api.URIDataAdapter;
 import datadog.trace.bootstrap.instrumentation.api.UTF8BytesString;
 import datadog.trace.bootstrap.instrumentation.decorator.HttpServerDecorator;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.glassfish.grizzly.http.server.Request;
 import org.glassfish.grizzly.http.server.Response;
+import org.glassfish.grizzly.http.server.io.NIOInputStream;
+import org.glassfish.grizzly.http.server.io.NIOOutputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -73,6 +78,64 @@ public class GrizzlyDecorator extends HttpServerDecorator<Request, Request, Resp
   @Override
   protected BlockResponseFunction createBlockResponseFunction(Request request, Request request2) {
     return new GrizzlyBlockResponseFunction(request);
+  }
+
+  @Override
+  public AgentSpan onRequest(
+      final AgentSpan span, final Request request, final Request request2) {
+    super.onRequest(span, request, request2);
+
+    // PAYLOAD CAPTURE: Request Body
+    if (Config.get().isNiqTracerPayloadCaptureEnabled() && request != null) {
+      captureRequestPayload(span, request);
+    }
+
+    return span;
+  }
+
+  @Override
+  public AgentSpan onResponse(final AgentSpan span, final Response response) {
+    super.onResponse(span, response);
+
+    // PAYLOAD CAPTURE: Response Body
+    // Note: For Grizzly, response capture requires stream wrapping which is
+    // complex due to NIO architecture. Request capture is implemented above.
+    // Response capture can be added in a future enhancement with stream instrumentation.
+
+    return span;
+  }
+
+  private void captureRequestPayload(AgentSpan span, Request request) {
+    try {
+      int contentLength = request.getContentLength();
+      if (contentLength <= 0 || contentLength > Config.get().getNiqTracerMaxPayloadSize()) {
+        return;
+      }
+
+      NIOInputStream inputStream = request.getNIOInputStream();
+      if (inputStream == null) {
+        return;
+      }
+
+      int maxSize = Config.get().getNiqTracerMaxPayloadSize();
+      byte[] buffer = new byte[Math.min(contentLength, maxSize)];
+
+      // Mark the stream so we can reset it for the application to read
+      inputStream.mark(buffer.length);
+
+      int bytesRead = inputStream.read(buffer);
+      if (bytesRead > 0) {
+        String payload = new String(buffer, 0, bytesRead, StandardCharsets.UTF_8);
+        span.setTag("http.request.body", payload);
+
+        // Reset the stream so the application can still read it
+        inputStream.reset();
+      }
+    } catch (IOException e) {
+      // Silently ignore - don't fail request due to payload capture
+    } catch (Exception e) {
+      // Silently ignore - don't fail request due to payload capture
+    }
   }
 
   public static class GrizzlyBlockResponseFunction implements BlockResponseFunction {
