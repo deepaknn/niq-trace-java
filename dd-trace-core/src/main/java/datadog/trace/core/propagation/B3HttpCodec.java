@@ -34,6 +34,7 @@ class B3HttpCodec {
   private static final String B3_KEY = "b3";
   private static final String SAMPLING_PRIORITY_ACCEPT = String.valueOf(1);
   private static final String SAMPLING_PRIORITY_DROP = String.valueOf(0);
+  static final String NIQTID_KEY = "niqtid";
 
   private B3HttpCodec() {
     // This class should not be created. This also makes code coverage checks happy.
@@ -102,6 +103,22 @@ class B3HttpCodec {
         return DDSpanId.toHexString(spanId);
       }
     }
+
+    /**
+     * Injects the niqtid header with format: {trace-id-hex}-{span-id-hex}-{parent-span-id-hex}~niqtid
+     * Parent-span-id will be 0000000000000000 for root spans.
+     */
+    protected final <C> void injectNiqtid(DDSpanContext context, C carrier, CarrierSetter<C> setter) {
+      try {
+        String niqtidValue = context.getTraceId().toHexString()
+            + "-" + DDSpanId.toHexStringPadded(context.getSpanId())
+            + "-" + DDSpanId.toHexStringPadded(context.getParentId())
+            + "~niqtid";
+        setter.set(carrier, NIQTID_KEY, niqtidValue);
+      } catch (Exception e) {
+        log.warn("Failed to inject niqtid header", e);
+      }
+    }
   }
 
   private static final class B3MultiInjector extends B3Injector {
@@ -121,6 +138,7 @@ class B3HttpCodec {
             convertSamplingPriority(context.getSamplingPriority());
         setter.set(carrier, SAMPLING_PRIORITY_KEY, injectedSamplingPriority);
       }
+      injectNiqtid(context, carrier, setter);
       log.debug(
           "{} - B3 parent context injected - {} {}",
           context.getTraceId(),
@@ -149,6 +167,7 @@ class B3HttpCodec {
       }
       String injectedB3Id = injectedB3IdBuilder.toString();
       setter.set(carrier, B3_KEY, injectedB3Id);
+      injectNiqtid(context, carrier, setter);
       log.debug("{} - B3 parent context injected - {}", context.getTraceId(), injectedB3Id);
     }
   }

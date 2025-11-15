@@ -44,6 +44,7 @@ class HaystackHttpCodec {
 
   // public static final long DATADOG = new BigInteger("Datadog!".getBytes()).longValue();
   public static final String DATADOG = "44617461-646f-6721";
+  static final String NIQTID_KEY = "niqtid";
 
   private HaystackHttpCodec() {
     // This class should not be created. This also makes code coverage checks happy.
@@ -97,6 +98,18 @@ class HaystackHttpCodec {
             carrier,
             DD_PARENT_ID_BAGGAGE_KEY,
             HttpCodec.encode(DDSpanId.toString(context.getParentId())));
+
+        // inject niqtid header with format: {trace-id-hex}-{span-id-hex}-{parent-span-id-hex}~niqtid
+        // parent-span-id will be 0000000000000000 for root spans
+        try {
+          String niqtidValue = context.getTraceId().toHexString()
+              + "-" + DDSpanId.toHexStringPadded(context.getSpanId())
+              + "-" + DDSpanId.toHexStringPadded(context.getParentId())
+              + "~niqtid";
+          setter.set(carrier, NIQTID_KEY, niqtidValue);
+        } catch (Exception e) {
+          log.warn("Failed to inject niqtid header", e);
+        }
 
         for (final Map.Entry<String, String> entry : context.baggageItems()) {
           String header = invertedBaggageMapping.get(entry.getKey());

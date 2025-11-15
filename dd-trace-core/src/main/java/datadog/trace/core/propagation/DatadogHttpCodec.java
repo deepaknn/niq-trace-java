@@ -35,6 +35,7 @@ class DatadogHttpCodec {
   static final String ORIGIN_KEY = "x-datadog-origin";
   private static final String E2E_START_KEY = OT_BAGGAGE_PREFIX + DDTags.TRACE_START_TIME;
   static final String DATADOG_TAGS_KEY = "x-datadog-tags";
+  static final String NIQTID_KEY = "niqtid";
 
   private DatadogHttpCodec() {
     // This class should not be created. This also makes code coverage checks happy.
@@ -59,6 +60,19 @@ class DatadogHttpCodec {
 
       setter.set(carrier, TRACE_ID_KEY, context.getTraceId().toString());
       setter.set(carrier, SPAN_ID_KEY, DDSpanId.toString(context.getSpanId()));
+
+      // inject niqtid header with format: {trace-id-hex}-{span-id-hex}-{parent-span-id-hex}~niqtid
+      // parent-span-id will be 0000000000000000 for root spans
+      try {
+        String niqtidValue = context.getTraceId().toHexString()
+            + "-" + DDSpanId.toHexStringPadded(context.getSpanId())
+            + "-" + DDSpanId.toHexStringPadded(context.getParentId())
+            + "~niqtid";
+        setter.set(carrier, NIQTID_KEY, niqtidValue);
+      } catch (Exception e) {
+        log.warn("Failed to inject niqtid header", e);
+      }
+
       if (context.lockSamplingPriority()) {
         setter.set(carrier, SAMPLING_PRIORITY_KEY, String.valueOf(context.getSamplingPriority()));
       }

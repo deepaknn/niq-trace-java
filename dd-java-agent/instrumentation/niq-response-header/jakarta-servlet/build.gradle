@@ -1,0 +1,15 @@
+muzzle {
+  pass {
+    name = 'servlet-5.x'
+    group = "jakarta.servlet"
+    module = 'jakarta.servlet-api'
+    versions = "[5.0,)"
+    assertInverse = true
+  }
+}
+
+apply from: "$rootDir/gradle/java.gradle"
+
+dependencies {
+  compileOnly group: 'jakarta.servlet', name: 'jakarta.servlet-api', version: '5.0.0'
+}

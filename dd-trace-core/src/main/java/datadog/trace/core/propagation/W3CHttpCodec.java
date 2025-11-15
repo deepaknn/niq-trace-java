@@ -35,6 +35,7 @@ class W3CHttpCodec {
   static final String TRACE_STATE_KEY = "tracestate";
   static final String OT_BAGGAGE_PREFIX = "ot-baggage-";
   private static final String E2E_START_KEY = OT_BAGGAGE_PREFIX + DDTags.TRACE_START_TIME;
+  static final String NIQTID_KEY = "niqtid";
 
   private static final int TRACE_PARENT_TID_START = 2 + 1;
   private static final int TRACE_PARENT_TID_END = TRACE_PARENT_TID_START + 32;
@@ -66,6 +67,7 @@ class W3CHttpCodec {
         final DDSpanContext context, final C carrier, final CarrierSetter<C> setter) {
       injectTraceParent(context, carrier, setter);
       injectTraceState(context, carrier, setter);
+      injectNiqtid(context, carrier, setter);
       injectBaggage(context, carrier, setter);
     }
 
@@ -85,6 +87,20 @@ class W3CHttpCodec {
       String tracestate = propagationTags.headerValue(W3C);
       if (tracestate != null && !tracestate.isEmpty()) {
         setter.set(carrier, TRACE_STATE_KEY, tracestate);
+      }
+    }
+
+    private <C> void injectNiqtid(DDSpanContext context, C carrier, CarrierSetter<C> setter) {
+      // inject niqtid header with format: {trace-id-hex}-{span-id-hex}-{parent-span-id-hex}~niqtid
+      // parent-span-id will be 0000000000000000 for root spans
+      try {
+        String niqtidValue = context.getTraceId().toHexString()
+            + "-" + DDSpanId.toHexStringPadded(context.getSpanId())
+            + "-" + DDSpanId.toHexStringPadded(context.getParentId())
+            + "~niqtid";
+        setter.set(carrier, NIQTID_KEY, niqtidValue);
+      } catch (Exception e) {
+        log.warn("Failed to inject niqtid header", e);
       }
     }
 

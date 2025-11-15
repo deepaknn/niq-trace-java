@@ -1,0 +1,15 @@
+muzzle {
+  pass {
+    name = 'grpc-1.5'
+    group = "io.grpc"
+    module = 'grpc-core'
+    versions = "[1.5.0,)"
+    assertInverse = true
+  }
+}
+
+apply from: "$rootDir/gradle/java.gradle"
+
+dependencies {
+  compileOnly group: 'io.grpc', name: 'grpc-core', version: '1.5.0'
+}

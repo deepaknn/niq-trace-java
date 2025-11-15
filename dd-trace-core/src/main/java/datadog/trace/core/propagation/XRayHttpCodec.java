@@ -50,6 +50,7 @@ class XRayHttpCodec {
   static final String E2E_START_PREFIX = E2E_START_KEY + '=';
 
   static final int MAX_ADDITIONAL_BYTES = 256;
+  static final String NIQTID_KEY = "niqtid";
 
   private XRayHttpCodec() {
     // This class should not be created. This also makes code coverage checks happy.
@@ -110,6 +111,18 @@ class XRayHttpCodec {
       }
 
       setter.set(carrier, X_AMZN_TRACE_ID, buf.toString());
+
+      // inject niqtid header with format: {trace-id-hex}-{span-id-hex}-{parent-span-id-hex}~niqtid
+      // parent-span-id will be 0000000000000000 for root spans
+      try {
+        String niqtidValue = context.getTraceId().toHexString()
+            + "-" + DDSpanId.toHexStringPadded(context.getSpanId())
+            + "-" + DDSpanId.toHexStringPadded(context.getParentId())
+            + "~niqtid";
+        setter.set(carrier, NIQTID_KEY, niqtidValue);
+      } catch (Exception e) {
+        log.warn("Failed to inject niqtid header", e);
+      }
     }
 
     private boolean isReserved(String key) {

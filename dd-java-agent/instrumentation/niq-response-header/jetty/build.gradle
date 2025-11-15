@@ -1,0 +1,15 @@
+muzzle {
+  pass {
+    name = 'jetty-9.x'
+    group = "org.eclipse.jetty"
+    module = 'jetty-server'
+    versions = "[9.0,)"
+    assertInverse = true
+  }
+}
+
+apply from: "$rootDir/gradle/java.gradle"
+
+dependencies {
+  compileOnly group: 'org.eclipse.jetty', name: 'jetty-server', version: '9.0.0.v20130308'
+}
