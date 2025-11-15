@@ -1,0 +1,15 @@
+muzzle {
+  pass {
+    name = 'spring-webflux-5.0'
+    group = "org.springframework"
+    module = 'spring-webflux'
+    versions = "[5.0.0.RELEASE,6.0.0)"
+    assertInverse = true
+  }
+}
+
+apply from: "$rootDir/gradle/java.gradle"
+
+dependencies {
+  compileOnly group: 'org.springframework', name: 'spring-webflux', version: '5.0.0.RELEASE'
+}

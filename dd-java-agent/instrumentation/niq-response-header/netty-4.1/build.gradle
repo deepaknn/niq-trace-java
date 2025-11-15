@@ -1,0 +1,16 @@
+muzzle {
+  pass {
+    name = 'netty-4.1'
+    group = "io.netty"
+    module = 'netty-codec-http'
+    versions = "[4.1.0.Final,)"
+    assertInverse = true
+  }
+}
+
+apply from: "$rootDir/gradle/java.gradle"
+
+dependencies {
+  compileOnly group: 'io.netty', name: 'netty-codec-http', version: '4.1.0.Final'
+  compileOnly project(':dd-java-agent:instrumentation:netty:netty-4.1')
+}

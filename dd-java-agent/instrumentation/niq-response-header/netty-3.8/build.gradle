@@ -1,0 +1,16 @@
+muzzle {
+  pass {
+    name = 'netty-3.8'
+    group = "io.netty"
+    module = 'netty'
+    versions = "[3.8.0.Final,4.0.0.Final)"
+    assertInverse = true
+  }
+}
+
+apply from: "$rootDir/gradle/java.gradle"
+
+dependencies {
+  compileOnly group: 'io.netty', name: 'netty', version: '3.10.6.Final'
+  compileOnly project(':dd-java-agent:instrumentation:netty:netty-3.8')
+}
