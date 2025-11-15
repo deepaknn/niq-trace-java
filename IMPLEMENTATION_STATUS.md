@@ -229,6 +229,114 @@ private static <T> String serializeGrpcMessage(T message) {
 
 ---
 
+### 8. Google HTTP Client Implementation
+**Status:** Fully Implemented ✅
+
+**Files Modified:**
+- `dd-java-agent/instrumentation/google-http-client/src/main/java/datadog/trace/instrumentation/googlehttpclient/GoogleHttpClientDecorator.java`
+
+**Capabilities:**
+- ✅ Captures HTTP request body before sending
+- ✅ Captures HTTP response body after receiving
+- ✅ Uses HttpContent.writeTo() for request capture
+- ✅ Reads from InputStream for response capture
+- ✅ Respects configuration settings
+- ✅ Graceful error handling (doesn't fail requests)
+
+**Span Tags:**
+- `http.request.body` - Request payload (truncated to max size)
+- `http.response.body` - Response payload (truncated to max size)
+
+**Implementation Pattern:**
+```java
+private void captureRequestPayload(AgentSpan span, HttpRequest request) {
+  try {
+    HttpContent content = request.getContent();
+    if (content == null) return;
+
+    int maxSize = Config.get().getNiqTracerMaxPayloadSize();
+    ByteArrayOutputStream baos = new ByteArrayOutputStream(Math.min(maxSize, 8192));
+    content.writeTo(baos);
+
+    if (baos.size() > 0) {
+      int length = Math.min(baos.size(), maxSize);
+      String payload = new String(baos.toByteArray(), 0, length, StandardCharsets.UTF_8);
+      span.setTag("http.request.body", payload);
+    }
+  } catch (Exception e) {
+    // Silently ignore
+  }
+}
+```
+
+---
+
+### 9. Commons HttpClient 2.0 Implementation
+**Status:** Fully Implemented ✅
+
+**Files Modified:**
+- `dd-java-agent/instrumentation/commons-httpclient-2.0/src/main/java/datadog/trace/instrumentation/commonshttpclient/CommonsHttpClientDecorator.java`
+
+**Capabilities:**
+- ✅ Captures HTTP request body from HttpMethod.getRequestBodyAsStream()
+- ✅ Captures HTTP response body from HttpMethod.getResponseBodyAsStream()
+- ✅ Respects configuration settings
+- ✅ Graceful error handling (doesn't fail requests)
+
+**Span Tags:**
+- `http.request.body` - Request payload (truncated to max size)
+- `http.response.body` - Response payload (truncated to max size)
+
+**Implementation Notes:**
+- Uses legacy Apache Commons HttpClient 2.0 API
+- Reads from InputStream for both request and response
+- Buffers data incrementally up to max size
+
+---
+
+### 10. Vert.x Web Server Implementation
+**Status:** Fully Implemented ✅
+
+**Files Modified:**
+- `dd-java-agent/instrumentation/vertx/vertx-web/vertx-web-4.0/src/main/java/datadog/trace/instrumentation/vertx_4_0/server/VertxDecorator.java`
+- `dd-java-agent/instrumentation/vertx/vertx-web/vertx-web-3.4/src/main/java/datadog/trace/instrumentation/vertx_3_4/server/VertxDecorator.java`
+
+**Capabilities:**
+- ✅ Captures HTTP request body from RoutingContext.body()
+- ✅ Uses Vert.x Buffer API for efficient data access
+- ✅ Respects configuration settings
+- ✅ Graceful error handling (doesn't fail requests)
+- ✅ Covers Vert.x versions 3.4, 3.9, 4.0, and 5.0
+
+**Span Tags:**
+- `http.request.body` - Request payload (truncated to max size)
+
+**Implementation Pattern:**
+```java
+private void captureRequestPayload(AgentSpan span, RoutingContext routingContext) {
+  try {
+    Buffer body = routingContext.body();  // or getBody() for older versions
+    if (body == null || body.length() == 0) return;
+
+    int maxSize = Config.get().getNiqTracerMaxPayloadSize();
+    int length = Math.min(body.length(), maxSize);
+
+    byte[] bytes = body.getBytes(0, length);
+    String payload = new String(bytes, StandardCharsets.UTF_8);
+    span.setTag("http.request.body", payload);
+  } catch (Exception e) {
+    // Silently ignore
+  }
+}
+```
+
+**Implementation Notes:**
+- Response body capture not implemented (would require intercepting response.write()/end() methods)
+- Request capture covers most common use cases
+- Vert.x 3.9 and 5.0 share decorators with 3.4 and 4.0 respectively
+
+---
+
 ## 📋 Pending Components
 
 ### High Priority
@@ -310,18 +418,6 @@ private static <T> String serializeGrpcMessage(T message) {
 
 ---
 
-#### 5. Vert.x Web
-**Estimated Effort:** 3-4 hours
-
-**Approach:**
-- Use `RoutingContext.body()` API to get Buffer
-- Simple string conversion from Buffer
-- Tag with `http.request.body`
-
-**Files to Modify:**
-- `dd-java-agent/instrumentation/vertx/vertx-web/vertx-web-4.0/src/main/java/datadog/trace/instrumentation/vertx_4_0/server/RoutingContextInstrumentation.java`
-
----
 
 ## 📊 Testing Strategy
 
@@ -432,22 +528,26 @@ Trace → Span → Meta Tags
 ### Immediate (This PR)
 1. ✅ Configuration system
 2. ✅ Core stream wrappers
-3. ✅ OkHttp implementation
+3. ✅ OkHttp 3.0 and 2.2 implementations
 4. ✅ gRPC server implementation
-5. ☐ Push to remote branch
-6. ☐ Create summary documentation
+5. ✅ Apache HttpClient 4.x and 5.x implementations
+6. ✅ Google HTTP Client implementation
+7. ✅ Commons HttpClient 2.0 implementation
+8. ✅ Vert.x Web implementation (request capture)
+9. ☐ Commit and push to remote branch
+10. ☐ Create summary documentation
 
 ### Short Term (Follow-up PRs)
-1. ☐ gRPC client implementation
-2. ☐ Apache HttpClient implementation
+1. ☐ gRPC client implementation (needs deeper investigation)
+2. ☐ Java 11 HttpClient (reactive streams complexity)
 3. ☐ Unit tests
 4. ☐ Integration tests
 5. ☐ Performance benchmarks
 
 ### Medium Term
-1. ☐ Servlet implementation
-2. ☐ Vert.x implementation
-3. ☐ Additional HTTP clients (Java 11, Jetty, etc.)
+1. ☐ Servlet implementation (needs AppSec coordination)
+2. ☐ Additional HTTP clients (Jetty, Play-WS, etc.)
+3. ☐ Vert.x response body capture (needs response interception)
 4. ☐ Field redaction support
 
 ### Long Term / Nice to Have
@@ -482,10 +582,10 @@ Trace → Span → Meta Tags
 ---
 
 **Last Updated:** 2025-11-15
-**Implementation Progress:** 70% Complete (7/10 major components)
+**Implementation Progress:** 85% Complete (10/12 major components)
 
 **New in this update:**
-- ✅ Added Apache HttpClient 4.x payload capture
-- ✅ Added Apache HttpClient 5.x payload capture
-- ✅ Added OkHttp 2.2 payload capture
-- All HTTP client implementations now complete
+- ✅ Added Google HTTP Client payload capture
+- ✅ Added Commons HttpClient 2.0 payload capture
+- ✅ Added Vert.x Web server payload capture (request only)
+- Phase 1 low-complexity implementations complete

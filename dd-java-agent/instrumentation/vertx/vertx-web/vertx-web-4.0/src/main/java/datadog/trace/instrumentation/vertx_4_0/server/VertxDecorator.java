@@ -1,6 +1,7 @@
 package datadog.trace.instrumentation.vertx_4_0.server;
 
 import datadog.context.Context;
+import datadog.trace.api.Config;
 import datadog.trace.bootstrap.instrumentation.api.AgentPropagation;
 import datadog.trace.bootstrap.instrumentation.api.AgentSpan;
 import datadog.trace.bootstrap.instrumentation.api.URIDataAdapter;
@@ -8,8 +9,10 @@ import datadog.trace.bootstrap.instrumentation.api.URIDataAdapterBase;
 import datadog.trace.bootstrap.instrumentation.api.URIDefaultDataAdapter;
 import datadog.trace.bootstrap.instrumentation.api.UTF8BytesString;
 import datadog.trace.bootstrap.instrumentation.decorator.HttpServerDecorator;
+import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.ext.web.RoutingContext;
+import java.nio.charset.StandardCharsets;
 
 public class VertxDecorator
     extends HttpServerDecorator<RoutingContext, RoutingContext, HttpServerResponse, Void> {
@@ -60,6 +63,10 @@ public class VertxDecorator
       final RoutingContext connection,
       final RoutingContext routingContext,
       final Context parentContext) {
+    // PAYLOAD CAPTURE: Request Body
+    if (Config.get().isNiqTracerPayloadCaptureEnabled() && routingContext != null) {
+      captureRequestPayload(span, routingContext);
+    }
     return span;
   }
 
@@ -76,5 +83,24 @@ public class VertxDecorator
   @Override
   protected int status(final HttpServerResponse httpServerResponse) {
     return httpServerResponse.getStatusCode();
+  }
+
+  private void captureRequestPayload(AgentSpan span, RoutingContext routingContext) {
+    try {
+      Buffer body = routingContext.body();
+      if (body == null || body.length() == 0) {
+        return;
+      }
+
+      int maxSize = Config.get().getNiqTracerMaxPayloadSize();
+      int length = Math.min(body.length(), maxSize);
+
+      // Get bytes and convert to string
+      byte[] bytes = body.getBytes(0, length);
+      String payload = new String(bytes, StandardCharsets.UTF_8);
+      span.setTag("http.request.body", payload);
+    } catch (Exception e) {
+      // Silently ignore - don't fail request due to payload capture
+    }
   }
 }
