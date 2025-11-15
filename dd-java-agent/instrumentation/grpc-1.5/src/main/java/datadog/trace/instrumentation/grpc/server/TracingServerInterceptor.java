@@ -147,6 +147,8 @@ public class TracingServerInterceptor implements ServerInterceptor {
               .setTag("message.type", message.getClass().getName());
       DECORATE.afterStart(msgSpan);
       try (AgentScope scope = activateSpan(msgSpan)) {
+        // PAYLOAD CAPTURE: gRPC Request Message
+        captureGrpcMessage(span, message, "grpc.request.body");
         callIGCallbackGrpcMessage(msgSpan, message);
         delegate().onMessage(message);
       } catch (final Throwable e) {
@@ -357,5 +359,53 @@ public class TracingServerInterceptor implements ServerInterceptor {
         callback.apply(requestContext, obj);
       }
     }
+  }
+
+  /**
+   * Captures gRPC message payload and tags the span.
+   * Converts protobuf messages to JSON format for readability.
+   */
+  private static <T> void captureGrpcMessage(AgentSpan span, T message, String tagName) {
+    if (!Config.get().isNiqTracerPayloadCaptureEnabled() || message == null) {
+      return;
+    }
+
+    try {
+      String payload = serializeGrpcMessage(message);
+
+      // Truncate if needed
+      int maxSize = Config.get().getNiqTracerMaxPayloadSize();
+      if (payload.length() > maxSize) {
+        payload = payload.substring(0, maxSize);
+      }
+
+      span.setTag(tagName, payload);
+    } catch (Exception e) {
+      // Silently ignore - don't fail RPC due to payload capture
+    }
+  }
+
+  /**
+   * Serializes a gRPC message to string format.
+   * Attempts JSON format for protobuf messages, falls back to toString().
+   */
+  private static <T> String serializeGrpcMessage(T message) {
+    if (message instanceof com.google.protobuf.Message) {
+      // For protobuf messages, use JsonFormat for readable output
+      try {
+        com.google.protobuf.util.JsonFormat.Printer printer =
+            com.google.protobuf.util.JsonFormat.printer()
+                .omittingInsignificantWhitespace();
+        return printer.print((com.google.protobuf.Message) message);
+      } catch (Exception e) {
+        // Fall through to toString() if JSON conversion fails
+      }
+    } else if (message instanceof com.google.protobuf.MessageLite) {
+      // MessageLite doesn't support reflection, use toString()
+      return message.toString();
+    }
+
+    // Fallback to toString() for non-protobuf messages
+    return message.toString();
   }
 }
