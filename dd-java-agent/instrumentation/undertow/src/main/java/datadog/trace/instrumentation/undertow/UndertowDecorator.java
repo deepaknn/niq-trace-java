@@ -6,9 +6,12 @@ import datadog.trace.api.naming.SpanNaming;
 import datadog.trace.bootstrap.InstanceStore;
 import datadog.trace.bootstrap.instrumentation.api.AgentPropagation;
 import datadog.trace.bootstrap.instrumentation.api.AgentScope;
+import datadog.trace.bootstrap.instrumentation.api.AgentSpan;
 import datadog.trace.bootstrap.instrumentation.api.URIDataAdapter;
 import datadog.trace.bootstrap.instrumentation.api.UTF8BytesString;
 import datadog.trace.bootstrap.instrumentation.decorator.HttpServerDecorator;
+import datadog.trace.bootstrap.instrumentation.decorator.http.PayloadCapturingInputStream;
+import datadog.trace.bootstrap.instrumentation.decorator.http.PayloadCapturingOutputStream;
 import io.undertow.server.HttpServerExchange;
 import io.undertow.util.AttachmentKey;
 
@@ -95,5 +98,54 @@ public class UndertowDecorator
   protected BlockResponseFunction createBlockResponseFunction(
       HttpServerExchange httpServerExchange, HttpServerExchange httpServerExchange1) {
     return new UndertowBlockResponseFunction(httpServerExchange);
+  }
+
+  // PAYLOAD CAPTURE: Attachment keys for storing capturing streams
+  @SuppressWarnings("rawtypes")
+  private static final InstanceStore<AttachmentKey> payloadAttachmentStore =
+      InstanceStore.of(AttachmentKey.class);
+
+  @SuppressWarnings("unchecked")
+  public static final AttachmentKey<PayloadCapturingInputStream> REQUEST_STREAM_KEY =
+      payloadAttachmentStore.putIfAbsent(
+          "DD_UNDERTOW_REQUEST_STREAM",
+          () -> AttachmentKey.create(PayloadCapturingInputStream.class));
+
+  @SuppressWarnings("unchecked")
+  public static final AttachmentKey<PayloadCapturingOutputStream> RESPONSE_STREAM_KEY =
+      payloadAttachmentStore.putIfAbsent(
+          "DD_UNDERTOW_RESPONSE_STREAM",
+          () -> AttachmentKey.create(PayloadCapturingOutputStream.class));
+
+  @Override
+  public AgentSpan onResponse(final AgentSpan span, final HttpServerExchange exchange) {
+    super.onResponse(span, exchange);
+
+    // PAYLOAD CAPTURE: Extract captured payloads from exchange attachments
+    if (Config.get().isNiqTracerPayloadCaptureEnabled() && exchange != null) {
+      try {
+        // Capture request payload
+        PayloadCapturingInputStream requestStream = exchange.getAttachment(REQUEST_STREAM_KEY);
+        if (requestStream != null) {
+          String requestPayload = requestStream.getCapturedPayload();
+          if (requestPayload != null && !requestPayload.isEmpty()) {
+            span.setTag("http.request.body", requestPayload);
+          }
+        }
+
+        // Capture response payload
+        PayloadCapturingOutputStream responseStream = exchange.getAttachment(RESPONSE_STREAM_KEY);
+        if (responseStream != null) {
+          String responsePayload = responseStream.getCapturedPayload();
+          if (responsePayload != null && !responsePayload.isEmpty()) {
+            span.setTag("http.response.body", responsePayload);
+          }
+        }
+      } catch (Exception e) {
+        // Silently ignore - don't fail request due to payload capture
+      }
+    }
+
+    return span;
   }
 }
