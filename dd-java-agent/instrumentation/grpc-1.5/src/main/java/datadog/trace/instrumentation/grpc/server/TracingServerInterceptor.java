@@ -114,6 +114,13 @@ public class TracingServerInterceptor implements ServerInterceptor {
     }
 
     @Override
+    public void sendMessage(RespT message) {
+      // PAYLOAD CAPTURE: gRPC Response Message
+      captureGrpcMessage(span, message, "grpc.response.body");
+      delegate().sendMessage(message);
+    }
+
+    @Override
     public void close(final Status status, final Metadata trailers) {
       DECORATE.onClose(span, status);
       try (final AgentScope scope = activateSpan(span)) {

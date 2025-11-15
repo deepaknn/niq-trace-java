@@ -63,6 +63,16 @@ public class HttpUrlConnectionInstrumentation extends InstrumenterModule.Tracing
     transformer.applyAdvice(
         isMethod().and(isProtected()).and(named("plainConnect")),
         HttpUrlConnectionInstrumentation.class.getName() + "$HttpUrlConnectionAdvice");
+
+    // PAYLOAD CAPTURE: Wrap getOutputStream() to capture request body
+    transformer.applyAdvice(
+        isMethod().and(isPublic()).and(named("getOutputStream")),
+        HttpUrlConnectionInstrumentation.class.getName() + "$GetOutputStreamAdvice");
+
+    // PAYLOAD CAPTURE: Wrap getInputStream() to capture response body
+    transformer.applyAdvice(
+        isMethod().and(isPublic()).and(named("getInputStream")),
+        HttpUrlConnectionInstrumentation.class.getName() + "$GetInputStreamAdvice");
   }
 
   public static class HttpUrlConnectionAdvice {
@@ -115,6 +125,54 @@ public class HttpUrlConnectionInstrumentation extends InstrumenterModule.Tracing
       }
 
       CallDepthThreadLocalMap.reset(HttpURLConnection.class);
+    }
+  }
+
+  // PAYLOAD CAPTURE: Advice for wrapping getOutputStream() return value
+  public static class GetOutputStreamAdvice {
+    @Advice.OnMethodExit(suppress = Throwable.class)
+    public static void methodExit(
+        @Advice.This final HttpURLConnection thiz,
+        @Advice.Return(readOnly = false) java.io.OutputStream outputStream) {
+
+      if (outputStream == null) {
+        return;
+      }
+
+      final ContextStore<HttpURLConnection, HttpUrlState> contextStore =
+          InstrumentationContext.get(HttpURLConnection.class, HttpUrlState.class);
+      final HttpUrlState state = contextStore.get(thiz);
+
+      if (state != null) {
+        synchronized (state) {
+          // Wrap the output stream to capture request payload
+          outputStream = state.wrapRequestStream(outputStream);
+        }
+      }
+    }
+  }
+
+  // PAYLOAD CAPTURE: Advice for wrapping getInputStream() return value
+  public static class GetInputStreamAdvice {
+    @Advice.OnMethodExit(suppress = Throwable.class)
+    public static void methodExit(
+        @Advice.This final HttpURLConnection thiz,
+        @Advice.Return(readOnly = false) java.io.InputStream inputStream) {
+
+      if (inputStream == null) {
+        return;
+      }
+
+      final ContextStore<HttpURLConnection, HttpUrlState> contextStore =
+          InstrumentationContext.get(HttpURLConnection.class, HttpUrlState.class);
+      final HttpUrlState state = contextStore.get(thiz);
+
+      if (state != null) {
+        synchronized (state) {
+          // Wrap the input stream to capture response payload
+          inputStream = state.wrapResponseStream(inputStream);
+        }
+      }
     }
   }
 }

@@ -4,9 +4,14 @@ import static datadog.trace.bootstrap.instrumentation.api.AgentTracer.activateSp
 import static datadog.trace.bootstrap.instrumentation.api.AgentTracer.startSpan;
 import static datadog.trace.bootstrap.instrumentation.httpurlconnection.HttpUrlConnectionDecorator.DECORATE;
 
+import datadog.trace.api.Config;
 import datadog.trace.bootstrap.ContextStore;
 import datadog.trace.bootstrap.instrumentation.api.AgentScope;
 import datadog.trace.bootstrap.instrumentation.api.AgentSpan;
+import datadog.trace.bootstrap.instrumentation.api.http.PayloadCapturingInputStream;
+import datadog.trace.bootstrap.instrumentation.api.http.PayloadCapturingOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 
 public class HttpUrlState {
@@ -14,6 +19,10 @@ public class HttpUrlState {
 
   private volatile AgentSpan span = null;
   private volatile boolean finished = false;
+
+  // PAYLOAD CAPTURE: Stream wrappers for capturing request/response payloads
+  private volatile PayloadCapturingOutputStream requestStream = null;
+  private volatile PayloadCapturingInputStream responseStream = null;
 
   public AgentSpan start(final HttpURLConnection connection) {
     span = startSpan(DECORATE.operationName());
@@ -47,6 +56,8 @@ public class HttpUrlState {
         // to have consistent behavior with other http clients.
         DECORATE.onError(span, throwable);
       }
+      // PAYLOAD CAPTURE: Tag span with captured payloads
+      tagCapturedPayloads();
       DECORATE.beforeFinish(span);
       span.finish();
       span = null;
@@ -64,11 +75,60 @@ public class HttpUrlState {
       try (final AgentScope scope = activateSpan(span)) {
         // safe to access response data as 'responseCode' is set
         DECORATE.onResponse(span, connection);
+        // PAYLOAD CAPTURE: Tag span with captured payloads
+        tagCapturedPayloads();
         DECORATE.beforeFinish(span);
         span.finish();
         span = null;
         finished = true;
       }
+    }
+  }
+
+  // PAYLOAD CAPTURE: Wrap output stream for request body capture
+  public OutputStream wrapRequestStream(OutputStream originalStream) {
+    if (!Config.get().isNiqTracerPayloadCaptureEnabled() || originalStream == null) {
+      return originalStream;
+    }
+
+    int maxSize = Config.get().getNiqTracerMaxPayloadSize();
+    requestStream = new PayloadCapturingOutputStream(originalStream, maxSize);
+    return requestStream;
+  }
+
+  // PAYLOAD CAPTURE: Wrap input stream for response body capture
+  public InputStream wrapResponseStream(InputStream originalStream) {
+    if (!Config.get().isNiqTracerPayloadCaptureEnabled() || originalStream == null) {
+      return originalStream;
+    }
+
+    int maxSize = Config.get().getNiqTracerMaxPayloadSize();
+    responseStream = new PayloadCapturingInputStream(originalStream, maxSize);
+    return responseStream;
+  }
+
+  // PAYLOAD CAPTURE: Tag span with captured request/response payloads
+  private void tagCapturedPayloads() {
+    if (span == null) {
+      return;
+    }
+
+    try {
+      if (requestStream != null) {
+        String requestPayload = requestStream.getCapturedPayload();
+        if (requestPayload != null && !requestPayload.isEmpty()) {
+          span.setTag("http.request.body", requestPayload);
+        }
+      }
+
+      if (responseStream != null) {
+        String responsePayload = responseStream.getCapturedPayload();
+        if (responsePayload != null && !responsePayload.isEmpty()) {
+          span.setTag("http.response.body", responsePayload);
+        }
+      }
+    } catch (Exception e) {
+      // Silently ignore - don't fail request due to payload capture
     }
   }
 }
