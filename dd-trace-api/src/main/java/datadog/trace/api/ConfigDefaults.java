@@ -138,6 +138,8 @@ public final class ConfigDefaults {
   static final int DEFAULT_APPSEC_MAX_STACK_TRACE_DEPTH = 32;
   static final int DEFAULT_APPSEC_MAX_COLLECTED_HEADERS = 50;
   static final int DEFAULT_APPSEC_BODY_PARSING_SIZE_LIMIT = 10_000_000;
+  static final boolean DEFAULT_NIQ_TRACER_PAYLOAD_CAPTURE = false;
+  static final int DEFAULT_NIQ_TRACER_MAX_PAYLOAD_SIZE = 8192; // 8KB
   static final String DEFAULT_IAST_ENABLED = "false";
   static final boolean DEFAULT_IAST_DEBUG_ENABLED = false;
   public static final int DEFAULT_IAST_MAX_CONCURRENT_REQUESTS = 4;

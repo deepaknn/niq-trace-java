@@ -117,6 +117,8 @@ import static datadog.trace.api.ConfigDefaults.DEFAULT_LOGS_INJECTION_ENABLED;
 import static datadog.trace.api.ConfigDefaults.DEFAULT_METRICS_OTEL_ENABLED;
 import static datadog.trace.api.ConfigDefaults.DEFAULT_METRICS_OTEL_INTERVAL;
 import static datadog.trace.api.ConfigDefaults.DEFAULT_METRICS_OTEL_TIMEOUT;
+import static datadog.trace.api.ConfigDefaults.DEFAULT_NIQ_TRACER_MAX_PAYLOAD_SIZE;
+import static datadog.trace.api.ConfigDefaults.DEFAULT_NIQ_TRACER_PAYLOAD_CAPTURE;
 import static datadog.trace.api.ConfigDefaults.DEFAULT_OTLP_GRPC_PORT;
 import static datadog.trace.api.ConfigDefaults.DEFAULT_OTLP_HTTP_METRIC_ENDPOINT;
 import static datadog.trace.api.ConfigDefaults.DEFAULT_OTLP_HTTP_PORT;
@@ -596,6 +598,8 @@ import static datadog.trace.api.config.TracerConfig.HEADER_TAGS;
 import static datadog.trace.api.config.TracerConfig.HTTP_CLIENT_ERROR_STATUSES;
 import static datadog.trace.api.config.TracerConfig.HTTP_SERVER_ERROR_STATUSES;
 import static datadog.trace.api.config.TracerConfig.ID_GENERATION_STRATEGY;
+import static datadog.trace.api.config.TracerConfig.NIQ_TRACER_MAX_PAYLOAD_SIZE;
+import static datadog.trace.api.config.TracerConfig.NIQ_TRACER_PAYLOAD_CAPTURE;
 import static datadog.trace.api.config.TracerConfig.PARTIAL_FLUSH_ENABLED;
 import static datadog.trace.api.config.TracerConfig.PARTIAL_FLUSH_MIN_SPANS;
 import static datadog.trace.api.config.TracerConfig.PRIORITY_SAMPLING;
@@ -994,6 +998,8 @@ public class Config {
   private final int appSecMaxStackTraces;
   private final int appSecMaxStackTraceDepth;
   private final int appSecBodyParsingSizeLimit;
+  private final boolean niqTracerPayloadCapture;
+  private final int niqTracerMaxPayloadSize;
   private final boolean apiSecurityEnabled;
   private final float apiSecuritySampleDelay;
   private final boolean apiSecurityEndpointCollectionEnabled;
@@ -2210,6 +2216,11 @@ public class Config {
     appSecBodyParsingSizeLimit =
         configProvider.getInteger(
             APPSEC_BODY_PARSING_SIZE_LIMIT, DEFAULT_APPSEC_BODY_PARSING_SIZE_LIMIT);
+    niqTracerPayloadCapture =
+        configProvider.getBoolean(NIQ_TRACER_PAYLOAD_CAPTURE, DEFAULT_NIQ_TRACER_PAYLOAD_CAPTURE);
+    niqTracerMaxPayloadSize =
+        configProvider.getInteger(
+            NIQ_TRACER_MAX_PAYLOAD_SIZE, DEFAULT_NIQ_TRACER_MAX_PAYLOAD_SIZE);
     apiSecurityEnabled =
         configProvider.getBoolean(
             API_SECURITY_ENABLED, DEFAULT_API_SECURITY_ENABLED, API_SECURITY_ENABLED_EXPERIMENTAL);
@@ -5336,6 +5347,14 @@ public class Config {
 
   public int getAppSecBodyParsingSizeLimit() {
     return appSecBodyParsingSizeLimit;
+  }
+
+  public boolean isNiqTracerPayloadCaptureEnabled() {
+    return niqTracerPayloadCapture;
+  }
+
+  public int getNiqTracerMaxPayloadSize() {
+    return niqTracerMaxPayloadSize;
   }
 
   public boolean isCloudPayloadTaggingEnabledFor(String serviceName) {
