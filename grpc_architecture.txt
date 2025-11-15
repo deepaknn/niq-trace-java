@@ -1,0 +1,236 @@
+================================================================================
+gRPC MESSAGE FLOW & INSTRUMENTATION ARCHITECTURE
+================================================================================
+
+CLIENT SIDE:
+============
+
+  Application Code
+       |
+       | sendMessage(Request)
+       v
+  ┌─────────────────────────────────────────────────────┐
+  │  ClientCallImpl (instrumented)                        │
+  │  - Constructor: Create span in InstrumentationContext│
+  │  - start():    Inject headers, activate span         │
+  │  - sendMessage(): **PAYLOAD CAPTURE POINT #1**       │
+  │    @Advice.OnMethodEnter can access Object message   │
+  │  - cancel():   Finish span                           │
+  └─────────────────────────────────────────────────────┘
+       |
+       | Transport Layer
+       | (TCP/HTTP2)
+       |
+       v
+  ┌─────────────────────────────────────────────────────┐
+  │  Server receives bytes, deserializes to protobuf obj │
+  └─────────────────────────────────────────────────────┘
+
+
+SERVER SIDE:
+============
+
+  ┌──────────────────────────────────────────────────┐
+  │ gRPC Server                                       │
+  │                                                   │
+  │ ServerBuilder.build()                            │
+  │     |                                             │
+  │     v                                             │
+  │ [GrpcServerBuilderInstrumentation]                │
+  │     | intercepts build()                          │
+  │     | injects TracingServerInterceptor            │
+  │     v                                             │
+  │ ┌──────────────────────────────────────────────┐  │
+  │ │ ServerInterceptor.interceptCall()             │  │
+  │ │  - Extract headers (Metadata)                 │  │
+  │ │  - Create request span                        │  │
+  │ │  - Call requestStarted() callback             │  │
+  │ │  - Call requestHeader() callbacks for each hdr│  │
+  │ │  - Wrap ServerCall for response tracking      │  │
+  │ │  - Wrap ServerCall.Listener (KEY!)            │  │
+  │ │     |                                          │  │
+  │ │     v                                          │  │
+  │ │  ┌────────────────────────────────────────┐   │  │
+  │ │  │ TracingServerCallListener (wrapper)    │   │  │
+  │ │  │                                         │   │  │
+  │ │  │ onMessage(ReqT message)                 │   │  │
+  │ │  │ **PAYLOAD CAPTURE POINT #2 (BEST)**    │   │  │
+  │ │  │  - message is fully deserialized       │   │  │
+  │ │  │  - Create "grpc.message" span          │   │  │
+  │ │  │  - Call callIGCallbackGrpcMessage()    │   │  │
+  │ │  │    |                                    │   │  │
+  │ │  │    v                                    │   │  │
+  │ │  │  RequestContext ctx                    │   │  │
+  │ │  │    |                                    │   │  │
+  │ │  │    +-- APPSEC Callbacks                 │   │  │
+  │ │  │    |   BiFunction<RequestContext,      │   │  │
+  │ │  │    |       Object, Flow<Void>>          │   │  │
+  │ │  │    |   ^-- Message passed here          │   │  │
+  │ │  │    |                                    │   │  │
+  │ │  │    +-- IAST Callbacks                   │   │  │
+  │ │  │    |   GrpcRequestMessageHandler        │   │  │
+  │ │  │    |   - Taints message deeply         │   │  │
+  │ │  │    |   - Processes nested objects      │   │  │
+  │ │  │    |                                    │   │  │
+  │ │  │    +-- Custom Callbacks (FUTURE)        │   │  │
+  │ │  │        Payload capture handlers         │   │  │
+  │ │  |                                         │   │  │
+  │ │  │ onHalfClose(), onComplete()            │   │  │
+  │ │  │ onCancel(), onReady()                   │   │  │
+  │ │  └────────────────────────────────────────┘   │  │
+  │ │                                                 │  │
+  │ │ TracingServerCall (wrapper)                    │  │
+  │ │  - close(Status status, Metadata trailers)     │  │
+  │ │  - Tracks response status code                 │  │
+  │ └──────────────────────────────────────────────┘  │
+  │                                                    │
+  │ User Implementation Handler                       │
+  │  - Receives wrapped listener, ServerCall          │
+  │  - Returns response via responseObserver.onNext() │
+  └──────────────────────────────────────────────────┘
+
+================================================================================
+MESSAGE OBJECT AVAILABILITY AT KEY POINTS:
+================================================================================
+
+Point                          | Message Available | Form              | Access Method
+-------------------------------|-------------------|-------------------|------------------------
+Client.sendMessage()           | YES (Argument)    | Java Object       | @Advice.Argument(0)
+ClientStreamListener.read()    | YES (Received)    | Java Object       | Context/Closure
+TracingServerListener          | YES (Parameter)   | Java Object       | Direct method param
+                               |                   |                   | ReqT message
+GrpcRequestMessageHandler      | YES (Parameter)   | Object            | BiFunction.apply()
+
+================================================================================
+GATEWAY CALLBACK CHAIN:
+================================================================================
+
+Event                          | Type                              | Triggered From
+-------------------------------|-----------------------------------|------------------
+requestStarted()              | Supplier<Flow<Object>>            | interceptCall()
+requestHeader()               | TriConsumer<RequestContext,       | callIGCallbackHeaders()
+                              |   String, String>                 | (for each header)
+requestHeaderDone()           | Function<RequestContext,          | callIGCallbackHeaders()
+                              |   Flow<Void>>                     | (after all headers)
+grpcServerMethod()            | BiFunction<RequestContext,        | callIGCallbackGrpcServerMethod()
+                              |   String, Flow<Void>>             | (method name)
+grpcServerRequestMessage()    | BiFunction<RequestContext,        | callIGCallbackGrpcMessage()
+                              |   Object, Flow<Void>>             | (message payload) <<<
+requestEnded()                | BiFunction<RequestContext,        | callIGCallbackRequestEnded()
+                              |   IGSpanInfo, Flow<Void>>         |
+
+================================================================================
+MESSAGE CAPTURE PIPELINE:
+================================================================================
+
+Request arrives on server
+    |
+    v
+Deserialized to Java object (protobuf GeneratedMessage)
+    |
+    v
+ServerInterceptor.interceptCall()
+    | - Extract metadata
+    | - Create request span
+    |
+    v
+TracingServerCallListener.onMessage(ReqT message)
+    | - Message object available
+    | - Create message span
+    | - Tag with message type
+    |
+    v
+callIGCallbackGrpcMessage(span, message)
+    | - Get RequestContext from span
+    |
+    +---> BiFunction.apply(requestContext, message)
+    |     APPSEC: May apply policy rules
+    |     IAST:   GrpcRequestMessageHandler
+    |            - Taints message fields
+    |            - Processes nested collections
+    |            - Records SOURCE_TYPE = GRPC_BODY
+    |     CUSTOM: Your payload capture handler
+    |
+    v
+delegate().onMessage(message)  - User handler receives message
+
+================================================================================
+KEY INSTRUMENTATION FILES WITH LINE NUMBERS:
+================================================================================
+
+File: TracingServerInterceptor.java
+  Line 57-61:   interceptCall() - Main interception point
+  Line 65-81:   Context extraction & callback setup
+  Line 86-104:  Wrap call and listener
+  Line 107-131: TracingServerCall wrapper
+  Line 144-165: TracingServerCallListener.onMessage() - BEST CAPTURE POINT
+  Line 331-360: callIGCallbackGrpcMessage() - Callback invocation
+
+File: ClientCallImplInstrumentation.java
+  Line 59:      sendMessage() hook
+  Line 135-152: SendMessage advice (could capture here)
+
+File: GrpcRequestMessageHandler.java
+  Line 33-46:   apply() - IAST message processing
+  Line 39-40:   taintObjectDeeply() - Deep taint propagation
+  Line 48-58:   visitProtobufArtifact() - Artifact visitor
+
+File: GrpcExtractAdapter.java
+  Line 11-20:   forEachKey() - Metadata header extraction
+
+File: GrpcInjectAdapter.java
+  Line 12-19:   set() - Header injection for context propagation
+
+================================================================================
+PROTOBUF MESSAGE CAPABILITIES:
+================================================================================
+
+Since messages are GeneratedMessage objects, you can:
+
+1. Serialize to bytes:
+   byte[] bytes = message.toByteArray();
+
+2. Get string representation:
+   String text = message.toString();
+
+3. Access individual fields via generated getters:
+   String name = ((Request) message).getName();
+
+4. Use reflection for generic access:
+   for (Method m : message.getClass().getMethods()) {
+     if (m.getName().startsWith("get") && m.getParameterCount() == 0) {
+       Object fieldValue = m.invoke(message);
+     }
+   }
+
+5. Check field presence:
+   boolean hasField = message.hasField(descriptor);
+
+6. Convert to JSON (with protobuf-json library):
+   String json = JsonFormat.printer().print(message);
+
+================================================================================
+CONTEXT STORE PATTERN FOR CROSS-METHOD DATA:
+================================================================================
+
+Pattern for storing data across bytecode instrumented methods:
+
+1. Define in instrumentation:
+   @Override
+   public Map<String, String> contextStore() {
+     return Collections.singletonMap(
+       "io.grpc.ClientCall", 
+       "com.example.PayloadData");
+   }
+
+2. Store in one method:
+   InstrumentationContext.get(ClientCall.class, PayloadData.class)
+     .put(call, data);
+
+3. Retrieve in another method:
+   PayloadData data = InstrumentationContext.get(
+     ClientCall.class, PayloadData.class).get(call);
+
+This allows associating spans with payloads across method calls.
+
+================================================================================
