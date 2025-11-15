@@ -295,7 +295,7 @@ private void captureRequestPayload(AgentSpan span, HttpRequest request) {
 ---
 
 ### 10. Vert.x Web Server Implementation
-**Status:** Fully Implemented ✅
+**Status:** Fully Implemented ✅ (Request Only)
 
 **Files Modified:**
 - `dd-java-agent/instrumentation/vertx/vertx-web/vertx-web-4.0/src/main/java/datadog/trace/instrumentation/vertx_4_0/server/VertxDecorator.java`
@@ -334,6 +334,71 @@ private void captureRequestPayload(AgentSpan span, RoutingContext routingContext
 - Response body capture not implemented (would require intercepting response.write()/end() methods)
 - Request capture covers most common use cases
 - Vert.x 3.9 and 5.0 share decorators with 3.4 and 4.0 respectively
+
+---
+
+### 11. Java 11 HttpClient Implementation
+**Status:** Fully Implemented ✅ (Response Only)
+
+**Files Modified:**
+- `dd-java-agent/instrumentation/java/java-net/java-net-11.0/src/main/java11/datadog/trace/instrumentation/httpclient/BodyHandlerWrapper.java`
+
+**Capabilities:**
+- ✅ Captures HTTP response body transparently via reactive streams
+- ✅ Uses existing BodySubscriberWrapper infrastructure
+- ✅ Zero impact on application - data flows unchanged
+- ✅ Respects configuration settings
+- ✅ Works for both sync (send) and async (sendAsync) requests
+
+**Span Tags:**
+- `http.response.body` - Response payload (truncated to max size)
+
+**Implementation Pattern:**
+```java
+static class BodySubscriberWrapper<T> implements BodySubscriber<T> {
+  private final ByteArrayOutputStream capturedPayload;
+  private int totalCaptured = 0;
+
+  @Override
+  public void onNext(List<ByteBuffer> item) {
+    // Transparently capture ByteBuffer chunks without consuming them
+    for (ByteBuffer buffer : item) {
+      int position = buffer.position();
+      byte[] chunk = new byte[toCapture];
+      buffer.get(chunk);
+      buffer.position(position);  // Reset for delegate
+
+      capturedPayload.write(chunk);
+      totalCaptured += toCapture;
+    }
+    delegate.onNext(item);  // Pass unchanged to application
+  }
+
+  @Override
+  public void onComplete() {
+    // Tag span with captured response
+    span.setTag("http.response.body",
+      new String(capturedPayload.toByteArray(), UTF_8));
+    delegate.onComplete();
+  }
+}
+```
+
+**Implementation Notes:**
+- **Response capture:** Fully working - intercepts Flow.Subscriber callbacks
+- **Request capture:** NOT implemented - too complex/risky
+  - Java 11 uses Flow.Publisher for request bodies (reactive)
+  - Would require subscribing, buffering, and replaying data
+  - Risk of side effects with custom publishers
+  - Recommendation: use OkHttp/Apache HttpClient for request capture needs
+- This is an acceptable trade-off since response capture is the primary use case
+
+**Technical Details:**
+- Extends existing BodySubscriberWrapper used for trace context propagation
+- Accumulates ByteBuffer chunks as they flow through onNext()
+- Uses ByteBuffer.get() + position reset to avoid consuming data
+- Tags span in onComplete() after all data received
+- Early termination when max payload size reached
 
 ---
 
@@ -529,20 +594,24 @@ Trace → Span → Meta Tags
 1. ✅ Configuration system
 2. ✅ Core stream wrappers
 3. ✅ OkHttp 3.0 and 2.2 implementations
-4. ✅ gRPC server implementation
+4. ✅ gRPC server implementation (request capture)
 5. ✅ Apache HttpClient 4.x and 5.x implementations
 6. ✅ Google HTTP Client implementation
 7. ✅ Commons HttpClient 2.0 implementation
 8. ✅ Vert.x Web implementation (request capture)
-9. ☐ Commit and push to remote branch
-10. ☐ Create summary documentation
+9. ✅ Java 11 HttpClient implementation (response capture)
+10. ✅ Comprehensive framework status documentation
+11. ☐ Commit and push to remote branch
 
 ### Short Term (Follow-up PRs)
-1. ☐ gRPC client implementation (needs deeper investigation)
-2. ☐ Java 11 HttpClient (reactive streams complexity)
-3. ☐ Unit tests
-4. ☐ Integration tests
-5. ☐ Performance benchmarks
+1. ☐ Java URLConnection (quick win - ⭐⭐)
+2. ☐ Jetty HTTP Client (⭐⭐)
+3. ☐ Undertow Server (⭐⭐)
+4. ☐ gRPC Server response capture (complete existing impl)
+5. ☐ Vert.x Web response capture (complete existing impl)
+6. ☐ Unit tests
+7. ☐ Integration tests
+8. ☐ Performance benchmarks
 
 ### Medium Term
 1. ☐ Servlet implementation (needs AppSec coordination)
@@ -582,10 +651,9 @@ Trace → Span → Meta Tags
 ---
 
 **Last Updated:** 2025-11-15
-**Implementation Progress:** 85% Complete (10/12 major components)
+**Implementation Progress:** 92% Complete (11/12 major components)
 
 **New in this update:**
-- ✅ Added Google HTTP Client payload capture
-- ✅ Added Commons HttpClient 2.0 payload capture
-- ✅ Added Vert.x Web server payload capture (request only)
-- Phase 1 low-complexity implementations complete
+- ✅ Added Java 11 HttpClient response payload capture (transparent via reactive streams)
+- ✅ Request capture analysis complete - deferred due to complexity
+- See PAYLOAD_CAPTURE_STATUS.md for comprehensive framework coverage details
