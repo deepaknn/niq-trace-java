@@ -1,0 +1,15 @@
+muzzle {
+  pass {
+    name = 'play-2.6'
+    group = "com.typesafe.play"
+    module = 'play_2.11'
+    versions = "[2.6.0,)"
+    assertInverse = true
+  }
+}
+
+apply from: "$rootDir/gradle/java.gradle"
+
+dependencies {
+  compileOnly group: 'com.typesafe.play', name: 'play_2.11', version: '2.6.0'
+}

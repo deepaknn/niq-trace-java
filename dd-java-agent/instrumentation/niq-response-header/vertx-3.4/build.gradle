@@ -1,0 +1,15 @@
+muzzle {
+  pass {
+    name = 'vertx-3.4'
+    group = "io.vertx"
+    module = 'vertx-core'
+    versions = "[3.4.0,4.0.0)"
+    assertInverse = true
+  }
+}
+
+apply from: "$rootDir/gradle/java.gradle"
+
+dependencies {
+  compileOnly group: 'io.vertx', name: 'vertx-core', version: '3.4.0'
+}

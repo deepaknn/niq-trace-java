@@ -1,0 +1,24 @@
+apply from: "$rootDir/gradle/java.gradle"
+
+dependencies {
+  testImplementation project(':dd-trace-core')
+  testImplementation project(':dd-java-agent:agent-bootstrap')
+  testImplementation project(':dd-java-agent:instrumentation-testing')
+
+  testImplementation group: 'io.netty', name: 'netty-codec-http', version: '4.1.0.Final'
+  testImplementation group: 'javax.servlet', name: 'javax.servlet-api', version: '3.1.0'
+  testImplementation group: 'jakarta.servlet', name: 'jakarta.servlet-api', version: '5.0.0'
+  testImplementation group: 'io.grpc', name: 'grpc-core', version: '1.5.0'
+  testImplementation group: 'org.springframework', name: 'spring-webflux', version: '5.0.0.RELEASE'
+  testImplementation group: 'io.undertow', name: 'undertow-core', version: '2.0.0.Final'
+  testImplementation group: 'io.vertx', name: 'vertx-core', version: '4.0.0'
+
+  testImplementation libs.groovy
+  testImplementation libs.spock
+  testImplementation libs.junit.jupiter
+  testImplementation libs.mockito.core
+}
+
+tasks.withType(Test).configureEach {
+  useJUnitPlatform()
+}

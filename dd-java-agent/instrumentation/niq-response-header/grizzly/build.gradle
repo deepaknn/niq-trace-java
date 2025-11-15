@@ -1,0 +1,15 @@
+muzzle {
+  pass {
+    name = 'grizzly-2.0'
+    group = "org.glassfish.grizzly"
+    module = 'grizzly-http-server'
+    versions = "[2.0,)"
+    assertInverse = true
+  }
+}
+
+apply from: "$rootDir/gradle/java.gradle"
+
+dependencies {
+  compileOnly group: 'org.glassfish.grizzly', name: 'grizzly-http-server', version: '2.3.0'
+}

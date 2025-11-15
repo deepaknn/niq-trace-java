@@ -1,0 +1,15 @@
+muzzle {
+  pass {
+    name = 'armeria-0.84'
+    group = "com.linecorp.armeria"
+    module = 'armeria'
+    versions = "[0.84.0,)"
+    assertInverse = true
+  }
+}
+
+apply from: "$rootDir/gradle/java.gradle"
+
+dependencies {
+  compileOnly group: 'com.linecorp.armeria', name: 'armeria', version: '0.84.0'
+}
